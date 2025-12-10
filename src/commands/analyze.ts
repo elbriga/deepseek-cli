@@ -32,10 +32,21 @@ File: ${fileName}
 ${fileContent}
 \`\`\``;
 
+    const messages = [
+        {
+          role: 'system',
+          content: 'You are DeepSeek Coder, an AI programming assistant. Help with coding tasks, provide clear code examples, and follow best practices.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ];
+
     // Call API
     const spinner = ora('Analyzing code...').start();
     const api = new DeepSeekAPI(config);
-    const response = await api.complete(prompt);
+    const response = await api.complete(messages);
     spinner.stop();
     
     // Display response

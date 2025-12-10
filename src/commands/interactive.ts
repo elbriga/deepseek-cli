@@ -140,13 +140,13 @@ export async function interactiveCommand(config: Config): Promise<void> {
           spinner.stop();
           console.log(chalk.dim('\nDeepSeek is responding...'));
           
-          response = await api.completeStreamWithHistory(messages, (chunk) => {
+          response = await api.completeStream(messages, (chunk) => {
             process.stdout.write(chunk);
           });
           
           console.log('\n');
         } else {
-          response = await api.completeWithHistory(messages);
+          response = await api.complete(messages);
           spinner.stop();
           console.log('\n' + formatResponse(response.content) + '\n');
         }

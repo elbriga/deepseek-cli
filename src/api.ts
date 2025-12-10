@@ -18,47 +18,104 @@ interface Conversation {
 export class DeepSeekAPI {
   constructor(private config: Config) {}
 
-  async complete(prompt: string): Promise<{ content: string, usage?: TokenUsage }> {
-    if (this.config.useLocal) {
-      return this.completeWithOllama(prompt);
-    } else {
-      return this.completeWithCloud(prompt);
-    }
+  async complete(messages: Conversation[]): Promise<{ content: string, usage?: TokenUsage }> {
+    return this.doAPIPost(messages, 60);
   }
 
-  private async completeWithOllama(prompt: string): Promise<{ content: string, usage?: TokenUsage }> {
+  async completeStream(messages: Conversation[], onChunk?: (chunk: string) => void): Promise<{ content: string, usage?: TokenUsage }> {
+    return this.doAPIPost(messages, 120, onChunk);
+  }
+
+  private async doAPIPost(messages: Conversation[], timeoutSecs: number, onChunk?: (chunk: string) => void) : Promise<{ content: string, usage: TokenUsage }> {
+    const isStream = !!onChunk;
+
     try {
       const response = await axios.post(
         this.config.apiUrl,
         {
           model: this.config.model,
-          messages: [
-            {
-              role: 'system',
-              content: 'You are DeepSeek Coder, an AI programming assistant. Help with coding tasks, provide clear code examples, and follow best practices.'
-            },
-            {
-              role: 'user',
-              content: prompt
-            }
-          ],
-          stream: false,
+          messages: messages,
+          stream: isStream,
           options: {
-            temperature: 0.1,
-            num_predict: 4096
+            temperature: this.config.temperature,
+            max_tokens: this.config.maxTokens,
+            num_predict: 4096,
           }
         },
         {
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            ...(this.config.apiKey && { 'Authorization': `Bearer ${this.config.apiKey}` }),
+            ...(isStream && { 'Accept': 'text/event-stream' }),
           },
-          timeout: 600000  // 10 minutes for local processing!
+          timeout: timeoutSecs * 1000,
+          ...(isStream && { responseType: 'stream' }),
         }
       );
 
-      const content = response.data.message.content;
-      let usage: TokenUsage | undefined;
+      if (isStream) {
+        let fullContent = '';
+        
+        return new Promise((resolve, reject) => {
+          response.data.on('data', (chunk: Buffer) => {
+            try {
+              const lines = chunk.toString().split('\n');
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  // cloud API
+                  if(line !== 'data: [DONE]') {
+                    const jsonData = JSON.parse(line.substring(6));
+                    const content = jsonData.choices[0]?.delta?.content || '';
+                    if (content) {
+                      fullContent += content;
+                      onChunk(content);
+                    }
+                  }
+                } else {
+                  // Ollama
+                  const jsonData = JSON.parse(line);
+                  if (jsonData.done) {
+                    // TODO get statistics
+                  } else {
+                    const content = jsonData.message?.content || '';
+                    if (content) {
+                      fullContent += content;
+                      onChunk(content);
+                    }
+                  }
+                }
+              }
+            } catch (error) {
+              // Ignore parsing errors for incomplete chunks
+            }
+          });
 
+          response.data.on('end', async () => {
+            // Estimate token usage
+            const prompt = messages.map(m => m.content).join('\n');
+            const promptTokens = await this.countTokens(prompt);
+            const completionTokens = await this.countTokens(fullContent);
+            const usage: TokenUsage = {
+              promptTokens,
+              completionTokens,
+              totalTokens: promptTokens + completionTokens,
+              estimatedCost: await this.estimateCost(promptTokens, completionTokens)
+            };
+            
+            resolve({ content: fullContent, usage });
+          });
+
+          response.data.on('error', (error: Error) => {
+            reject(error);
+          });
+        });
+      }
+
+      const content = this.config.useLocal ?
+        response.data.message.content :
+        response.data.choices[0].message.content;
+
+      let usage: TokenUsage;
       if (response.data.usage) {
         usage = {
           promptTokens: response.data.usage.prompt_tokens,
@@ -68,6 +125,7 @@ export class DeepSeekAPI {
         };
       } else {
         // If the API doesn't return usage info, estimate it
+        const prompt = messages.map(m => m.content).join('\n');
         const tokenCount = await this.countTokens(prompt);
         const outputTokenCount = await this.countTokens(content);
         usage = {
@@ -80,336 +138,40 @@ export class DeepSeekAPI {
 
       return { content, usage };
     } catch (error: any) {
-      if (error.code === 'ECONNREFUSED') {
-        throw new Error(
-          `Cannot connect to Ollama at ${this.config.ollamaHost}.\n` +
-          'Make sure Ollama is running: ollama serve\n' +
-          `And the model is installed: ollama pull ${this.config.model}`
-        );
-      }
-      if (error.response?.status === 404) {
-        throw new Error(
-          `Model '${this.config.model}' not found in Ollama.\n` +
-          `Install it with: ollama pull ${this.config.model}`
-        );
-      }
-      throw new Error(`Ollama API error: ${error.message}`);
-    }
-  }
-
-  private async completeWithCloud(prompt: string): Promise<{ content: string, usage?: TokenUsage }> {
-    try {
-      const response = await axios.post(
-        this.config.apiUrl,
-        {
-          model: this.config.model,
-          messages: [
-            {
-              role: 'system',
-              content: 'You are DeepSeek Coder, an AI programming assistant. Help with coding tasks, provide clear code examples, and follow best practices.'
-            },
-            {
-              role: 'user',
-              content: prompt
-            }
-          ],
-          temperature: this.config.temperature,
-          max_tokens: this.config.maxTokens
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${this.config.apiKey}`,
-            'Content-Type': 'application/json'
-          },
-          timeout: 60000  // 60 seconds
+      if (this.config.useLocal) {
+        // Catch Ollama Errors
+        if (error.code === 'ECONNREFUSED') {
+          throw new Error(
+            `Cannot connect to Ollama at ${this.config.ollamaHost}.\n` +
+            'Make sure Ollama is running: ollama serve\n' +
+            `And the model is installed: ollama pull ${this.config.model}`
+          );
         }
-      );
-
-      const content = response.data.choices[0].message.content;
-      let usage: TokenUsage | undefined;
-      
-      if (response.data.usage) {
-        usage = {
-          promptTokens: response.data.usage.prompt_tokens,
-          completionTokens: response.data.usage.completion_tokens,
-          totalTokens: response.data.usage.total_tokens,
-          estimatedCost: await this.estimateCost(response.data.usage.prompt_tokens, response.data.usage.completion_tokens)
-        };
+        if (error.response?.status === 404) {
+          throw new Error(
+            `Model '${this.config.model}' not found in Ollama.\n` +
+            `Install it with: ollama pull ${this.config.model}`
+          );
+        }
+        throw new Error(`Ollama API error: ${error.message}`);
       } else {
-        // If the API doesn't return usage info, estimate it
-        const tokenCount = await this.countTokens(prompt);
-        const outputTokenCount = await this.countTokens(content);
-        usage = {
-          promptTokens: tokenCount,
-          completionTokens: outputTokenCount,
-          totalTokens: tokenCount + outputTokenCount,
-          estimatedCost: await this.estimateCost(tokenCount, outputTokenCount)
-        };
-      }
-
-      return { content, usage };
-    } catch (error: any) {
-      if (error.response?.status === 401) {
-        throw new Error('Invalid API key. Please check your DEEPSEEK_API_KEY.');
-      }
-      if (error.response?.status === 429) {
-        throw new Error('Rate limit exceeded. Please try again later.');
-      }
-      if (error.response?.status === 400) {
-        console.error('API Error Details:', error.response?.data);
-        throw new Error(`Bad request: ${error.response?.data?.error?.message || 'Invalid request format'}`);
-      }
-      throw new Error(`API error: ${error.message}`);
-    }
-  }
-
-  async completeWithHistory(messages: Conversation[]): Promise<{ content: string, usage?: TokenUsage }> {
-    try {
-      const response = await axios.post(
-        this.config.apiUrl,
-        {
-          model: this.config.model,
-          messages: messages,
-          temperature: this.config.temperature,
-          max_tokens: this.config.maxTokens
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${this.config.apiKey}`,
-            'Content-Type': 'application/json'
-          },
-          timeout: 60000  // 60 seconds
+        // Catch Cloud API Errors
+        if (error.response?.status === 401) {
+          throw new Error('Invalid API key. Please check your DEEPSEEK_API_KEY.');
         }
-      );
-
-      const content = response.data.choices[0].message.content;
-      let usage: TokenUsage | undefined;
-      
-      if (response.data.usage) {
-        usage = {
-          promptTokens: response.data.usage.prompt_tokens,
-          completionTokens: response.data.usage.completion_tokens,
-          totalTokens: response.data.usage.total_tokens,
-          estimatedCost: await this.estimateCost(response.data.usage.prompt_tokens, response.data.usage.completion_tokens)
-        };
-      } else {
-        // If the API doesn't return usage info, estimate it
-        const promptText = messages.map(m => m.content).join(' ');
-        const tokenCount = await this.countTokens(promptText);
-        const outputTokenCount = await this.countTokens(content);
-        usage = {
-          promptTokens: tokenCount,
-          completionTokens: outputTokenCount,
-          totalTokens: tokenCount + outputTokenCount,
-          estimatedCost: await this.estimateCost(tokenCount, outputTokenCount)
-        };
-      }
-
-      return { content, usage };
-    } catch (error: any) {
-      if (error.response?.status === 401) {
-        throw new Error('Invalid API key. Please check your DEEPSEEK_API_KEY.');
-      }
-      if (error.response?.status === 429) {
-        throw new Error('Rate limit exceeded. Please try again later.');
-      }
-      if (error.response?.status === 400) {
-        console.error('API Error Details:', error.response?.data);
-        throw new Error(`Bad request: ${error.response?.data?.error?.message || 'Invalid request format'}`);
-      }
-      throw new Error(`API error: ${error.message}`);
-    }
-  }
-
-  async completeStream(prompt: string, onChunk: (chunk: string) => void): Promise<{ content: string, usage?: TokenUsage }> {
-    try {
-      const response = await axios.post(
-        this.config.apiUrl,
-        {
-          model: this.config.model,
-          messages: [
-            {
-              role: 'system',
-              content: 'You are DeepSeek Coder, an AI programming assistant. Help with coding tasks, provide clear code examples, and follow best practices.'
-            },
-            {
-              role: 'user',
-              content: prompt
-            }
-          ],
-          temperature: this.config.temperature,
-          max_tokens: this.config.maxTokens,
-          stream: true
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${this.config.apiKey}`,
-            'Content-Type': 'application/json',
-            'Accept': 'text/event-stream'
-          },
-          responseType: 'stream',
-          timeout: 120000  // 120 seconds for streaming
+        if (error.response?.status === 429) {
+          throw new Error('Rate limit exceeded. Please try again later.');
         }
-      );
-
-      let fullContent = '';
-      
-      return new Promise((resolve, reject) => {
-        response.data.on('data', (chunk: Buffer) => {
-          try {
-            const lines = chunk.toString().split('\n');
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                // cloud API
-                if(line !== 'data: [DONE]') {
-                  const jsonData = JSON.parse(line.substring(6));
-                  const content = jsonData.choices[0]?.delta?.content || '';
-                  if (content) {
-                    fullContent += content;
-                    onChunk(content);
-                  }
-                }
-              } else {
-                // Ollama
-                const jsonData = JSON.parse(line);
-                if (jsonData.done) {
-                  // TODO get statistics
-                } else {
-                  const content = jsonData.message?.content || '';
-                  if (content) {
-                    fullContent += content;
-                    onChunk(content);
-                  }
-                }
-              }
-            }
-          } catch (error) {
-            // Ignore parsing errors for incomplete chunks
-          }
-        });
-
-        response.data.on('end', async () => {
-          // Estimate token usage
-          const promptTokens = await this.countTokens(prompt);
-          const completionTokens = await this.countTokens(fullContent);
-          const usage: TokenUsage = {
-            promptTokens,
-            completionTokens,
-            totalTokens: promptTokens + completionTokens,
-            estimatedCost: await this.estimateCost(promptTokens, completionTokens)
-          };
-          
-          resolve({ content: fullContent, usage });
-        });
-
-        response.data.on('error', (error: Error) => {
-          reject(error);
-        });
-      });
-    } catch (error: any) {
-      if (error.response?.status === 401) {
-        throw new Error('Invalid API key. Please check your DEEPSEEK_API_KEY.');
-      }
-      if (error.response?.status === 429) {
-        throw new Error('Rate limit exceeded. Please try again later.');
-      }
-      if (error.response?.status === 400) {
-        console.error('API Error Details:', error.response?.data);
-        throw new Error(`Bad request: ${error.response?.data?.error?.message || 'Invalid request format'}`);
-      }
-      throw new Error(`API error: ${error.message}`);
-    }
-  }
-
-  async completeStreamWithHistory(messages: Conversation[], onChunk: (chunk: string) => void): Promise<{ content: string, usage?: TokenUsage }> {
-    try {
-      const response = await axios.post(
-        this.config.apiUrl,
-        {
-          model: this.config.model,
-          messages: messages,
-          temperature: this.config.temperature,
-          max_tokens: this.config.maxTokens,
-          stream: true
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${this.config.apiKey}`,
-            'Content-Type': 'application/json',
-            'Accept': 'text/event-stream'
-          },
-          responseType: 'stream',
-          timeout: 120000  // 120 seconds for streaming
+        if (error.response?.status === 400) {
+          console.error('API Error Details:', error.response?.data);
+          throw new Error(`Bad request: ${error.response?.data?.error?.message || 'Invalid request format'}`);
         }
-      );
+        if (error.response?.status === 500) {
+          throw new Error('Insufficient Funds');
+        }
 
-      let fullContent = '';
-      
-      return new Promise((resolve, reject) => {
-        response.data.on('data', (chunk: Buffer) => {
-          try {
-            const lines = chunk.toString().split('\n');
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                // Cloud API
-                if(line !== 'data: [DONE]') {
-                  const jsonData = JSON.parse(line.substring(6));
-                  const content = jsonData.choices[0]?.delta?.content || '';
-                  if (content) {
-                    fullContent += content;
-                    onChunk(content);
-                  }
-                }
-              } else {
-                // Ollama
-                const jsonData = JSON.parse(line);
-                if (jsonData.done) {
-                  // TODO get statistics
-                } else {
-                  const content = jsonData.message?.content || '';
-                  if (content) {
-                    fullContent += content;
-                    onChunk(content);
-                  }
-                }
-              }
-            }
-          } catch (error) {
-            // Ignore parsing errors for incomplete chunks
-          }
-        });
-
-        response.data.on('end', async () => {
-          // Estimate token usage
-          const promptText = messages.map(m => m.content).join(' ');
-          const promptTokens = await this.countTokens(promptText);
-          const completionTokens = await this.countTokens(fullContent);
-          const usage: TokenUsage = {
-            promptTokens,
-            completionTokens,
-            totalTokens: promptTokens + completionTokens,
-            estimatedCost: await this.estimateCost(promptTokens, completionTokens)
-          };
-          
-          resolve({ content: fullContent, usage });
-        });
-
-        response.data.on('error', (error: Error) => {
-          reject(error);
-        });
-      });
-    } catch (error: any) {
-      if (error.response?.status === 401) {
-        throw new Error('Invalid API key. Please check your DEEPSEEK_API_KEY.');
+        throw new Error(`Cloud API error: ${error.message}`);
       }
-      if (error.response?.status === 429) {
-        throw new Error('Rate limit exceeded. Please try again later.');
-      }
-      if (error.response?.status === 400) {
-        console.error('API Error Details:', error.response?.data);
-        throw new Error(`Bad request: ${error.response?.data?.error?.message || 'Invalid request format'}`);
-      }
-      throw new Error(`API error: ${error.message}`);
     }
   }
 

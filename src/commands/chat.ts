@@ -13,10 +13,21 @@ export async function chatCommand(prompt: string, config: Config): Promise<void>
 
 async function nonStreamingChat(prompt: string, config: Config): Promise<void> {
   const spinner = ora('Thinking...').start();
+
+  const messages = [
+      {
+        role: 'system',
+        content: 'You are DeepSeek Coder, an AI programming assistant. Help with coding tasks, provide clear code examples, and follow best practices.'
+      },
+      {
+        role: 'user',
+        content: prompt
+      }
+    ];
   
   try {
     const api = new DeepSeekAPI(config);
-    const response = await api.complete(prompt);
+    const response = await api.complete(messages);
     
     spinner.stop();
     console.log('\n' + formatResponse(response.content) + '\n');
@@ -35,10 +46,21 @@ async function nonStreamingChat(prompt: string, config: Config): Promise<void> {
 async function streamingChat(prompt: string, config: Config): Promise<void> {
   const spinner = ora('Thinking...').start();
   let responseStarted = false;
+
+  const messages = [
+      {
+        role: 'system',
+        content: 'You are DeepSeek Coder, an AI programming assistant. Help with coding tasks, provide clear code examples, and follow best practices.'
+      },
+      {
+        role: 'user',
+        content: prompt
+      }
+    ];
   
   try {
     const api = new DeepSeekAPI(config);
-    const response = await api.completeStream(prompt, (chunk) => {
+    const response = await api.completeStream(messages, (chunk) => {
       if (!responseStarted) {
         spinner.stop();
         console.log(''); // Add a newline before the response
