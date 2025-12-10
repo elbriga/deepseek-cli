@@ -259,12 +259,27 @@ export class DeepSeekAPI {
           try {
             const lines = chunk.toString().split('\n');
             for (const line of lines) {
-              if (line.startsWith('data: ') && line !== 'data: [DONE]') {
-                const jsonData = JSON.parse(line.substring(6));
-                const content = jsonData.choices[0]?.delta?.content || '';
-                if (content) {
-                  fullContent += content;
-                  onChunk(content);
+              if (line.startsWith('data: ')) {
+                // cloud API
+                if(line !== 'data: [DONE]') {
+                  const jsonData = JSON.parse(line.substring(6));
+                  const content = jsonData.choices[0]?.delta?.content || '';
+                  if (content) {
+                    fullContent += content;
+                    onChunk(content);
+                  }
+                }
+              } else {
+                // Ollama
+                const jsonData = JSON.parse(line);
+                if (jsonData.done) {
+                  // TODO get statistics
+                } else {
+                  const content = jsonData.message?.content || '';
+                  if (content) {
+                    fullContent += content;
+                    onChunk(content);
+                  }
                 }
               }
             }
