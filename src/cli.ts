@@ -31,6 +31,8 @@ export class CLI {
       .option('--max-tokens <tokens>', 'Maximum tokens in response', '4096')
       .option('-s, --stream', 'Enable streaming responses', false)
       .option('-r, --show-reasoning', 'Show reasoning (only for deepseek-reasoner model)', false)
+      .option('-i, --include <file>', 'Include file on the request')
+      .option('-a, --include-all <filePattern>', 'Include files on the request. eg.: src/*')
       .helpOption('-h, --help', 'Display help information')
       .addHelpCommand(false)
       .on('--help', () => {
@@ -205,11 +207,17 @@ Focus on:
         const config = this.buildConfig(this.program.opts());
         
         // Show welcome
-        console.log(chalk.cyan('\n🚀 DeepSeek CLI - Local Mode\n'));
+        console.log(chalk.cyan('\n🚀 DeepSeek CLI\n'));
         console.log(chalk.gray('Mode:'), config.useLocal ? chalk.green('Local (Ollama)') : chalk.blue('Cloud'));
         console.log(chalk.gray('Model:'), chalk.white(config.model));
         if (config.useLocal) {
           console.log(chalk.gray('Ollama Host:'), chalk.white(config.ollamaHost));
+        }
+        if (config.include) {
+          console.log(chalk.gray('Included File:'), chalk.white(config.include));
+        }
+        if (config.includeAll) {
+          console.log(chalk.gray('Included Files:'), chalk.white(config.includeAll));
         }
         console.log(chalk.gray('Type "exit" or Ctrl+C to quit\n'));
         
@@ -296,6 +304,9 @@ Focus on:
     if (options.stream !== undefined) config.stream = options.stream;
     if (options.showReasoning !== undefined) config.showReasoning = options.showReasoning;
     
+    if (options.include !== undefined) config.include = options.include;
+    if (options.includeAll !== undefined) config.includeAll = options.includeAll;
+
     // Update API URL if local mode is forced
     if (config.useLocal) {
       config.apiUrl = `${config.ollamaHost}/api/chat`;

@@ -15,6 +15,8 @@ ${chalk.yellow('USAGE')}
 ${chalk.yellow('OPTIONS')}
   -k, --api-key <key>       DeepSeek API key
   -m, --model <model>       Model to use (deepseek-chat, deepseek-reasoner)
+  -i, --include <file>      Include one file on the request
+  -a, --include-all <files> Include the file pattern. eg.: src/*.ts
   -t, --temperature <temp>  Temperature for creativity (0.0-1.0)
   --max-tokens <tokens>     Maximum tokens in response
   -s, --stream              Enable streaming responses

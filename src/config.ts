@@ -12,6 +12,8 @@ export interface Config {
   temperature: number;
   stream: boolean;
   showReasoning: boolean;
+  include: string;
+  includeAll: string;
 }
 
 // Available DeepSeek models
@@ -104,6 +106,8 @@ export function getConfig(): Config {
     maxTokens: maxTokens,
     temperature: temperature,
     stream: stream,
-    showReasoning: showReasoning
+    showReasoning: showReasoning,
+    include: "",
+    includeAll: "",
   }
 }

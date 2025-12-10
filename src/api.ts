@@ -2,6 +2,8 @@ import axios from 'axios';
 import { Config } from './config';
 import { spawn } from 'child_process';
 import * as path from 'path';
+import * as fs from 'fs';
+import chalk from 'chalk';
 
 export interface TokenUsage {
   promptTokens: number;
@@ -28,6 +30,31 @@ export class DeepSeekAPI {
 
   private async doAPIPost(messages: Conversation[], timeoutSecs: number, onChunk?: (chunk: string) => void) : Promise<{ content: string, usage: TokenUsage }> {
     const isStream = !!onChunk;
+
+    if (this.config.include) {
+      // Check if file exists
+      if (!fs.existsSync(this.config.include)) {
+        console.error(chalk.red(`Error: File not found: ${this.config.include}`));
+        process.exit(1);
+      }
+
+      try {
+        // Read file content
+        const fileContent = fs.readFileSync(this.config.include, 'utf8');
+        const fileExt = path.extname(this.config.include).substring(1);
+
+        messages.push({
+          role: 'system',
+          content: `File: ${this.config.include}
+\`\`\`${fileExt}
+${fileContent}
+\`\`\``
+        });
+      } catch (error) {
+        console.error(chalk.red('Error:'), error instanceof Error ? error.message : error);
+        process.exit(1);
+      }
+    }
 
     try {
       const response = await axios.post(
