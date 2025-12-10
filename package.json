@@ -1,7 +1,7 @@
 {
   "name": "run-deepseek-cli",
   "version": "1.1.0",
-  "description": "AI-powered coding assistant CLI using DeepSeek models with local Ollama support",
+  "description": "AI-powered assistant CLI using DeepSeek models for code analysis, chat, and problem solving with local Ollama support",
   "main": "dist/index.js",
   "bin": {
     "deepseek": "./dist/index.js",
@@ -11,7 +11,9 @@
     "dist/**/*",
     "README.md",
     "LICENSE",
-    "package.json"
+    "CHANGELOG.md",
+    "package.json",
+    "deepseek_v3_tokenizer/**/*"
   ],
   "scripts": {
     "build": "tsc",
@@ -21,7 +23,8 @@
     "test": "echo \"Error: no test specified\" && exit 0",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write src/**/*.ts",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "publish-package": "npm run build && npm publish"
   },
   "keywords": [
     "cli",
@@ -29,8 +32,16 @@
     "ai",
     "coding-assistant",
     "code-generation",
+    "code-analysis",
     "developer-tools",
-    "command-line"
+    "command-line",
+    "ai-assistant",
+    "reasoning",
+    "streaming",
+    "token-counter",
+    "cost-estimation",
+    "accessibility",
+    "conversation"
   ],
   "author": "Your Name <your.email@example.com>",
   "license": "MIT",
