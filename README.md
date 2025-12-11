@@ -313,6 +313,8 @@ For the complete list, see [Supported Languages](./docs/supported-languages.md).
 |--------|-------------|---------|
 | `-k, --api-key <key>` | DeepSeek API key | From config |
 | `-m, --model <model>` | Model to use | `deepseek-chat` |
+| `-i, --include <file>` | Include one file | |
+| `-a, --include-all <filePattern>` | Include files from pattern | |
 | `-t, --temperature <temp>` | Temperature (0.0-1.0) | `0.1` |
 | `--max-tokens <tokens>` | Maximum tokens in response | `4096` |
 | `-s, --stream` | Enable streaming responses | `false` |
