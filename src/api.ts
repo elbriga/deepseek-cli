@@ -124,7 +124,7 @@ ${fileContent}
           });
 
           response.data.on('end', async () => {
-            resolve({ content: fullContent, usage: await this.getUsage(messages, content) });
+            resolve({ content: fullContent, usage: await this.getUsage(messages, fullContent) });
           });
 
           response.data.on('error', (error: Error) => {
