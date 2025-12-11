@@ -31,6 +31,8 @@ export class DeepSeekAPI {
   private async executeRequest(messages: Conversation[], timeoutSecs: number, onChunk?: (chunk: string) => void) : Promise<{ content: string, usage: TokenUsage }> {
     const isStream = !!onChunk;
 
+    const requestMessages = [...messages];
+
     if (this.config.include) {
       // Check if file exists
       if (!fs.existsSync(this.config.include)) {
@@ -43,7 +45,7 @@ export class DeepSeekAPI {
         const fileContent = fs.readFileSync(this.config.include, 'utf8');
         const fileExt = path.extname(this.config.include).substring(1);
 
-        messages.push({
+        requestMessages.push({
           role: 'system',
           content: `File: ${this.config.include}
 \`\`\`${fileExt}
@@ -61,7 +63,7 @@ ${fileContent}
         this.config.apiUrl,
         {
           model: this.config.model,
-          messages: messages,
+          messages: requestMessages,
           stream: isStream,
           ...(this.config.useLocal
             ? { options: { // Ollama uses a "options" object
@@ -124,7 +126,7 @@ ${fileContent}
           });
 
           response.data.on('end', async () => {
-            resolve({ content: fullContent, usage: await this.getUsage(messages, fullContent) });
+            resolve({ content: fullContent, usage: await this.getUsage(requestMessages, fullContent) });
           });
 
           response.data.on('error', (error: Error) => {
@@ -137,7 +139,7 @@ ${fileContent}
         response.data?.choices?.[0]?.message?.content ?? // Cloud
         response.data?.message?.content;                 // Ollama
 
-      return { content, usage: await this.getUsage(messages, content) };
+      return { content, usage: await this.getUsage(requestMessages, content) };
     } catch (error: any) {
       if (this.config.useLocal) {
         // Catch Ollama Errors
