@@ -206,21 +206,21 @@ function formatResponse(response: string): string {
 }
 
 function displayTokenUsage(usage: TokenUsage): void {
-  console.log(chalk.dim('─'.repeat(40)));
+  console.log(chalk.dim('─'.repeat(2)));
   console.log(chalk.dim('Token Usage:'));
   console.log(chalk.dim(`  Input: ${usage.promptTokens} tokens`));
   console.log(chalk.dim(`  Output: ${usage.completionTokens} tokens`));
   console.log(chalk.dim(`  Total: ${usage.totalTokens} tokens`));
   console.log(chalk.dim(`  Estimated Cost: $${usage.estimatedCost.toFixed(6)}`));
-  console.log(chalk.dim('─'.repeat(40)));
+  console.log(chalk.dim('─'.repeat(2)));
 }
 
 function displaySessionSummary(sessionTokens: { promptTokens: number, completionTokens: number, totalTokens: number, estimatedCost: number }): void {
-  console.log(chalk.cyan('\n─'.repeat(50)));
+  console.log(chalk.cyan('\n─'.repeat(2)));
   console.log(chalk.cyan('Session Summary:'));
   console.log(chalk.cyan(`  Total Input Tokens: ${sessionTokens.promptTokens}`));
   console.log(chalk.cyan(`  Total Output Tokens: ${sessionTokens.completionTokens}`));
   console.log(chalk.cyan(`  Total Tokens: ${sessionTokens.totalTokens}`));
   console.log(chalk.cyan(`  Total Estimated Cost: $${sessionTokens.estimatedCost.toFixed(6)}`));
-  console.log(chalk.cyan('─'.repeat(50)));
+  console.log(chalk.cyan('─'.repeat(2)));
 }
