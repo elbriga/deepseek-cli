@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { AxiosRequestConfig } from 'axios';
 import { Config } from './config';
 import { spawn } from 'child_process';
 import * as path from 'path';
@@ -24,7 +25,7 @@ export class DeepSeekAPI {
   constructor(private config: Config) {}
 
   async complete(messages: Conversation[]): Promise<{ content: string, usage?: TokenUsage }> {
-    return this.executeRequest(messages, 60);
+    return this.executeRequest(messages, 120);
   }
 
   async completeStream(messages: Conversation[], onChunk: (chunk: string) => void): Promise<{ content: string, usage?: TokenUsage }> {
@@ -54,40 +55,49 @@ export class DeepSeekAPI {
     }
 
     try {
-      const response = await axios.post(
-        this.config.apiUrl,
-        {
-          model: this.config.model,
-          messages: requestMessages,
-          stream: isStream,
-          ...(this.config.useLocal
-            ? { options: { // Ollama uses a "options" object
-              temperature: this.config.temperature,
-              max_tokens: this.config.maxTokens,
-              num_predict: 4096,
-            } }
-            : { // Cloud API 
-              temperature: this.config.temperature,
-              max_tokens: this.config.maxTokens,
-            }),
-          
+      const postData = {
+        model: this.config.model,
+        messages: requestMessages,
+        stream: isStream,
+        ...(this.config.useLocal
+          ? { options: { // Ollama uses a "options" object
+            temperature: this.config.temperature,
+            max_tokens: this.config.maxTokens,
+            num_predict: 4096,
+          } }
+          : { // Cloud API 
+            temperature: this.config.temperature,
+            max_tokens: this.config.maxTokens,
+          }),  
+      };
+
+      const postOpts: AxiosRequestConfig = {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(!this.config.useLocal && { 'Authorization': `Bearer ${this.config.apiKey}` }),
+          ...(isStream && { 'Accept': 'text/event-stream' }),
         },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            ...(this.config.apiKey && { 'Authorization': `Bearer ${this.config.apiKey}` }),
-            ...(isStream && { 'Accept': 'text/event-stream' }),
-          },
-          timeout: timeoutSecs * 1000,
-          ...(isStream && { responseType: 'stream' }),
-        }
-      );
+        timeout: timeoutSecs * 1000,
+        ...(isStream && { responseType: 'stream' }),
+      };
+
+      console.log('------------------------==== Request ===========>>>>>>>>');
+      console.log(`POST URL: ${this.config.apiUrl}`)
+      console.log('------------------------========================>>>>>>>>');
+      console.dir(postData, {depth:2});
+      console.dir(postOpts, {depth:2});
+      console.log('------------------------========================>>>>>>>>');
+      
+      const response = await axios.post(this.config.apiUrl, postData, postOpts);
 
       if (isStream) {
         let fullContent = '';
         
         return new Promise((resolve, reject) => {
           response.data.on('data', (chunk: Buffer) => {
+            // console.log('------------------------================ CHUNK!!!!!!!!!!');
+            // console.dir(chunk.toString(), {depth:2});
+            // console.log('------------------------========================>>>>>>>>');
             try {
               const lines = chunk.toString().split('\n');
               for (const line of lines) {
