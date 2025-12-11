@@ -21,14 +21,14 @@ export class DeepSeekAPI {
   constructor(private config: Config) {}
 
   async complete(messages: Conversation[]): Promise<{ content: string, usage?: TokenUsage }> {
-    return this.doAPIPost(messages, 60);
+    return this.executeRequest(messages, 60);
   }
 
   async completeStream(messages: Conversation[], onChunk?: (chunk: string) => void): Promise<{ content: string, usage?: TokenUsage }> {
-    return this.doAPIPost(messages, 120, onChunk);
+    return this.executeRequest(messages, 120, onChunk);
   }
 
-  private async doAPIPost(messages: Conversation[], timeoutSecs: number, onChunk?: (chunk: string) => void) : Promise<{ content: string, usage: TokenUsage }> {
+  private async executeRequest(messages: Conversation[], timeoutSecs: number, onChunk?: (chunk: string) => void) : Promise<{ content: string, usage: TokenUsage }> {
     const isStream = !!onChunk;
 
     if (this.config.include) {
@@ -63,11 +63,17 @@ ${fileContent}
           model: this.config.model,
           messages: messages,
           stream: isStream,
-          options: {
-            temperature: this.config.temperature,
-            max_tokens: this.config.maxTokens,
-            num_predict: 4096,
-          }
+          ...(this.config.useLocal
+            ? { options: { // Ollama uses a "options" object
+              temperature: this.config.temperature,
+              max_tokens: this.config.maxTokens,
+              num_predict: 4096,
+            } }
+            : { // Cloud API 
+              temperature: this.config.temperature,
+              max_tokens: this.config.maxTokens,
+            }),
+          
         },
         {
           headers: {
@@ -118,18 +124,7 @@ ${fileContent}
           });
 
           response.data.on('end', async () => {
-            // Estimate token usage
-            const prompt = messages.map(m => m.content).join('\n');
-            const promptTokens = await this.countTokens(prompt);
-            const completionTokens = await this.countTokens(fullContent);
-            const usage: TokenUsage = {
-              promptTokens,
-              completionTokens,
-              totalTokens: promptTokens + completionTokens,
-              estimatedCost: await this.estimateCost(promptTokens, completionTokens)
-            };
-            
-            resolve({ content: fullContent, usage });
+            resolve({ content: fullContent, usage: await this.getUsage(messages, content) });
           });
 
           response.data.on('error', (error: Error) => {
@@ -138,32 +133,11 @@ ${fileContent}
         });
       }
 
-      const content = this.config.useLocal ?
-        response.data.message.content :
-        response.data.choices[0].message.content;
+      const content =
+        response.data?.choices?.[0]?.message?.content ?? // Cloud
+        response.data?.message?.content;                 // Ollama
 
-      let usage: TokenUsage;
-      if (response.data.usage) {
-        usage = {
-          promptTokens: response.data.usage.prompt_tokens,
-          completionTokens: response.data.usage.completion_tokens,
-          totalTokens: response.data.usage.total_tokens,
-          estimatedCost: await this.estimateCost(response.data.usage.prompt_tokens, response.data.usage.completion_tokens)
-        };
-      } else {
-        // If the API doesn't return usage info, estimate it
-        const prompt = messages.map(m => m.content).join('\n');
-        const tokenCount = await this.countTokens(prompt);
-        const outputTokenCount = await this.countTokens(content);
-        usage = {
-          promptTokens: tokenCount,
-          completionTokens: outputTokenCount,
-          totalTokens: tokenCount + outputTokenCount,
-          estimatedCost: await this.estimateCost(tokenCount, outputTokenCount)
-        };
-      }
-
-      return { content, usage };
+      return { content, usage: await this.getUsage(messages, content) };
     } catch (error: any) {
       if (this.config.useLocal) {
         // Catch Ollama Errors
@@ -183,23 +157,35 @@ ${fileContent}
         throw new Error(`Ollama API error: ${error.message}`);
       } else {
         // Catch Cloud API Errors
-        if (error.response?.status === 401) {
-          throw new Error('Invalid API key. Please check your DEEPSEEK_API_KEY.');
-        }
-        if (error.response?.status === 429) {
-          throw new Error('Rate limit exceeded. Please try again later.');
-        }
-        if (error.response?.status === 400) {
-          console.error('API Error Details:', error.response?.data);
-          throw new Error(`Bad request: ${error.response?.data?.error?.message || 'Invalid request format'}`);
-        }
-        if (error.response?.status === 500) {
-          throw new Error('Insufficient Funds');
-        }
+        switch (error.response?.status) {
+          case 400:
+            console.error('API Error Details:', error.response?.data);
+            throw new Error(`Bad request: ${error.response?.data?.error?.message || 'Invalid request format'}`);
 
-        throw new Error(`Cloud API error: ${error.message}`);
+          case 401: throw new Error('Invalid API key. Please check your DEEPSEEK_API_KEY.');
+          case 429: throw new Error('Rate limit exceeded. Please try again later.');
+          case 500: throw new Error('Insufficient Funds');
+
+          default:  throw new Error(`Cloud API error: ${error.message}`);
+        }
       }
     }
+  }
+
+  async getUsage(messages: Conversation[], output: string): Promise<TokenUsage> {
+    // Estimate token usage
+    const prompt = messages.map(m => m.content).join('\n');
+    const promptTokens = await this.countTokens(prompt);
+    const completionTokens = await this.countTokens(output);
+    
+    const usage: TokenUsage = {
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+      estimatedCost: await this.estimateCost(promptTokens, completionTokens)
+    };
+
+    return usage;
   }
 
   async completeWithReasoning(prompt: string): Promise<{ content: string, reasoningContent?: string, usage?: TokenUsage }> {
