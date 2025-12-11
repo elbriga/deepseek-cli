@@ -20,14 +20,14 @@ interface Conversation {
 
 export class DeepSeekAPI {
   private attachedFiles: string[] = [];
-  
+
   constructor(private config: Config) {}
 
   async complete(messages: Conversation[]): Promise<{ content: string, usage?: TokenUsage }> {
     return this.executeRequest(messages, 60);
   }
 
-  async completeStream(messages: Conversation[], onChunk?: (chunk: string) => void): Promise<{ content: string, usage?: TokenUsage }> {
+  async completeStream(messages: Conversation[], onChunk: (chunk: string) => void): Promise<{ content: string, usage?: TokenUsage }> {
     return this.executeRequest(messages, 120, onChunk);
   }
 
