@@ -9,6 +9,7 @@ import { DeepSeekAPI, TokenUsage } from './api';
 import { helpText } from './help';
 import ora from 'ora';
 import { setupCommand } from './commands/setup';
+import { globSync } from 'glob';
 
 export class CLI {
   private program: Command;
@@ -217,7 +218,17 @@ Focus on:
           console.log(chalk.gray('Included File:'), chalk.white(config.include));
         }
         if (config.includeAll) {
+          // Encontrar arquivos pelo pattern (ex: "src/*.ts")
+          const files = globSync(config.includeAll);
+
           console.log(chalk.gray('Included Files:'), chalk.white(config.includeAll));
+          if (files.length === 0) {
+            console.error(chalk.red(`No files matched pattern: ${config.includeAll}`));
+          } else {
+            for (const filePath of files) {
+              console.log(chalk.gray('Included File:'), chalk.white(filePath));
+            }
+          }
         }
         console.log(chalk.gray('Type "exit" or Ctrl+C to quit\n'));
         

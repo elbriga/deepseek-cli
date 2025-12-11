@@ -4,6 +4,7 @@ import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import chalk from 'chalk';
+import { globSync } from 'glob';
 
 export interface TokenUsage {
   promptTokens: number;
@@ -18,6 +19,8 @@ interface Conversation {
 }
 
 export class DeepSeekAPI {
+  private attachedFiles: string[] = [];
+  
   constructor(private config: Config) {}
 
   async complete(messages: Conversation[]): Promise<{ content: string, usage?: TokenUsage }> {
@@ -34,27 +37,19 @@ export class DeepSeekAPI {
     const requestMessages = [...messages];
 
     if (this.config.include) {
-      // Check if file exists
-      if (!fs.existsSync(this.config.include)) {
-        console.error(chalk.red(`Error: File not found: ${this.config.include}`));
-        process.exit(1);
-      }
+      this.attachFile(this.config.include, requestMessages);
+    }
 
-      try {
-        // Read file content
-        const fileContent = fs.readFileSync(this.config.include, 'utf8');
-        const fileExt = path.extname(this.config.include).substring(1);
+    if (this.config.includeAll) {
+      // Encontrar arquivos pelo pattern (ex: "src/*.ts")
+      const files = globSync(this.config.includeAll);
 
-        requestMessages.push({
-          role: 'system',
-          content: `File: ${this.config.include}
-\`\`\`${fileExt}
-${fileContent}
-\`\`\``
-        });
-      } catch (error) {
-        console.error(chalk.red('Error:'), error instanceof Error ? error.message : error);
-        process.exit(1);
+      if (files.length === 0) {
+        console.error(chalk.red(`No files matched pattern: ${this.config.includeAll}`));
+      } else {
+        for (const filePath of files) {
+          this.attachFile(filePath, requestMessages);
+        }
       }
     }
 
@@ -171,6 +166,34 @@ ${fileContent}
           default:  throw new Error(`Cloud API error: ${error.message}`);
         }
       }
+    }
+  }
+
+  private attachFile(filePath: string, messages: Conversation[]) {
+    if (this.attachedFiles.includes(filePath)) {
+      return;
+    }
+
+    if (!fs.existsSync(filePath)) {
+      console.error(chalk.red(`Error: File not found: ${filePath}`));
+      return;
+    }
+
+    try {
+      const fileContent = fs.readFileSync(filePath, 'utf8');
+      const ext = path.extname(filePath).substring(1) || 'txt';
+
+      this.attachedFiles.push(filePath);
+
+      messages.push({
+        role: 'system',
+        content: `File: ${filePath}
+\`\`\`${ext}
+${fileContent}
+\`\`\``
+      });
+    } catch (error) {
+      console.error(chalk.red(`Error reading file: ${filePath}`), error);
     }
   }
 
